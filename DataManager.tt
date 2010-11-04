@@ -75,7 +75,7 @@ namespace <#= useNamespace #>
 	#region Generated code
 
 	[GeneratedCode("TextTemplatingFileGenerator", "10")] // this attribute makes code analysis to skip this class
-	internal class <#= className #> : DbManager
+	public partial class <#= className #> : DbManager
 	{
 <#
 	List<RelEntity> entities = new List<RelEntity>();
