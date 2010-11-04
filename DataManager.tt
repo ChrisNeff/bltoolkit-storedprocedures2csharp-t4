@@ -46,8 +46,8 @@ using BLToolkit.Data;
 				join sys.types t
 				on t.system_type_id = pa.system_type_id
 			on (pa.object_id = p.object_id)
-		where p.name not like 'sp_%' and pa.is_output = 0 and t.name<>'sysname'
-		order by p.name";
+		where p.name not like 'sp_%' and isnull(pa.is_output, 0) = 0 and isnull(t.name,'')<>'sysname'
+		order by p.name, pa.parameter_id";
 
 	Dictionary<string, string> typeConverter = new Dictionary<string, string>()
 	{
@@ -90,6 +90,7 @@ namespace <#= useNamespace #>
 			{
 				string procClassName = string.Empty;
 				string procMethodName = string.Empty;
+				string paramName = null;
 
 				while(dr.Read())
 				{
@@ -104,10 +105,14 @@ namespace <#= useNamespace #>
 						procMethodName = names[1];
 						entities.Last().Procedures.Add(new Proc { OriginalName = procMethodName });
 					}
-					entities.Last().Procedures.Last().Parameters.Add(new Param {
-						OriginalName = dr["ParamName"].ToString(),
-						Type = typeConverter[dr["ParamType"].ToString()]
-					});
+					paramName = dr["ParamName"];
+					if (!DBNull.Value.Equals(paramName))
+					{
+						entities.Last().Procedures.Last().Parameters.Add(new Param {
+							OriginalName = paramName.ToString(),
+							Type = typeConverter[dr["ParamType"].ToString()]
+						});
+					}
 				}
 			}
 		}
