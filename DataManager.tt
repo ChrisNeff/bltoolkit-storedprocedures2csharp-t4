@@ -1,0 +1,269 @@
+﻿<#@ template debug="true" hostSpecific="false" #>
+<#@ output extension=".generated.cs" #>
+<#@ Assembly Name="System.Core.dll" #>
+<#@ Assembly Name="System.Windows.Forms.dll" #>
+<#@ Assembly Name="System.Data" #>
+<#@ import namespace="System" #>
+<#@ import namespace="System.Collections" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.Text" #>
+using System;
+using System.CodeDom.Compiler;
+using BLToolkit.Data;
+
+<#
+/* BLToolkit stored procedure calls T4 generator          */
+/* ------------------------------------------------------ */
+/* 1. Fill in variables below this comment head           */
+/* 2. Stored procedures must use this notation:           */
+/*    ie. "Person_SaveWithRelations"                      */
+/*    which will generate:                                */
+/*    - a class PersonClass                               */
+/*    - a property DataManager.Person of type PersonClass */
+/*    - an instance method Person.SaveWithRelations()     */
+/*    - method will have strong typed parameters          */
+/* 3. Save template and use code                          */
+
+	// set your preferred DbManager inherited class name (ie. class DataManager: DbManager { ... })
+	string className = "DataManager";
+	// provide namespace of your class
+	string useNamespace = "ApplicationName.Data.General";
+	// provide DB connection name (from .config file) that will be used by your DB manager
+	string dbConnectionName = "DefaultDatabaseConnection";
+
+	// provide DB connection string that will be used by this generator
+	string connection = "Data Source=.;Initial Catalog=somedb;User ID=someuser;Password=somepassword";
+
+	/* That's it. Save this file now. */
+
+	string command = @"
+		select p.name ProcName, pa.name ParamName, t.name ParamType
+		from sys.procedures p
+			left join sys.parameters pa
+				join sys.types t
+				on t.system_type_id = pa.system_type_id
+			on (pa.object_id = p.object_id)
+		where p.name not like 'sp_%' and pa.is_output = 0 and t.name<>'sysname'
+		order by p.name";
+
+	Dictionary<string, string> typeConverter = new Dictionary<string, string>()
+	{
+		{"bit", "bool?"},
+		{"int", "int?"},
+		{"varchar", "string"},
+		{"nvarchar", "string"},
+		{"char", "string"},
+		{"nchar", "string"},
+		{"date", "DateTime?"},
+		{"datetime", "DateTime?"},
+		{"smalldatetime", "DateTime?"},
+		{"time", "TimeSpan?"},
+		{"varbinary", "byte[]"},
+		{"money", "decimal?"},
+		{"numeric", "decimal?"},
+		{"decimal", "decimal?"},
+		{"real", "Single?"},
+		{"float", "double?"},
+		{"uniqueidentifier", "Guid?"}
+	};
+#>
+namespace <#= useNamespace #>
+{
+	#region Generated code
+
+	[GeneratedCode("TextTemplatingFileGenerator", "10")] // this attribute makes code analysis to skip this class
+	internal class <#= className #> : DbManager
+	{
+<#
+	List<RelEntity> entities = new List<RelEntity>();
+	
+	// first read all procedures from DB along with their parameters
+	using(SqlConnection conn = new SqlConnection(connection))
+	{
+		using(SqlCommand comm = new SqlCommand(command, conn))
+		{
+			conn.Open();
+			using(SqlDataReader dr = comm.ExecuteReader())
+			{
+				string procClassName = string.Empty;
+				string procMethodName = string.Empty;
+
+				while(dr.Read())
+				{
+					string[] names = dr["ProcName"].ToString().Split('_');
+					if (!procClassName.Equals(names[0], StringComparison.OrdinalIgnoreCase))
+					{
+						procClassName = names[0];
+						entities.Add(new RelEntity { OriginalName = procClassName });
+					}
+					if (!procMethodName.Equals(names[1], StringComparison.OrdinalIgnoreCase))
+					{
+						procMethodName = names[1];
+						entities.Last().Procedures.Add(new Proc { OriginalName = procMethodName });
+					}
+					entities.Last().Procedures.Last().Parameters.Add(new Param {
+						OriginalName = dr["ParamName"].ToString(),
+						Type = typeConverter[dr["ParamType"].ToString()]
+					});
+				}
+			}
+		}
+	}
+	
+	// ok, we iterated over stored procedures, now we need to generate classes and methods
+	foreach(RelEntity e in entities)
+	{
+		GenerateClass(e);
+	}
+#>
+
+		#region Properties
+
+<#
+		foreach(RelEntity e in entities)
+		{ #>
+		public <#= e.Name #>Class <#= e.Name #> { get; private set; }
+<#
+		}
+#>
+
+		#endregion
+
+		#region Constructor
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="DataManager"/> class.
+		/// </summary>
+		public DataManager()
+			: base("<#= dbConnectionName #>")
+		{
+<#
+			foreach(RelEntity e in entities)
+			{ #>
+			this.<#= e.Name #> = new <#= e.Name #>Class(this);
+<#
+			}
+			#>
+		}
+		
+		#endregion
+	}
+	
+	#endregion
+}
+<#+
+	private class RelEntity
+	{
+		public string OriginalName;
+		public string Name
+		{
+			get
+			{
+				string name = this.OriginalName ?? string.Empty;
+				return name[0].ToString().ToUpperInvariant() + name.Substring(1);
+			}
+		}
+		public List<Proc> Procedures = new List<Proc>();
+	}
+	
+	private class Proc
+	{
+		public string OriginalName;
+		public string Name
+		{
+			get
+			{
+				string name = this.OriginalName ?? string.Empty;
+				return name[0].ToString().ToUpperInvariant() + name.Substring(1);
+			}
+		}
+		public List<Param> Parameters = new List<Param>();
+	}
+	
+	private class Param
+	{
+		public string OriginalName;
+		public string Name
+		{
+			get
+			{
+				string name = this.OriginalName ?? string.Empty;
+				name = name.Replace("@", string.Empty);
+				return name[0].ToString().ToLowerInvariant() + name.Substring(1);
+			}
+		}
+		public string Type;
+	}
+#>
+<#+
+	private void GenerateClass(RelEntity ent)
+	{
+		#>
+
+		#region <#= ent.Name #> class
+		
+		///<summary>
+		/// Provides access to <#= ent.Name #> related stored procedures by providing method equivalents
+		///</summary>
+		public class <#= ent.Name #>Class
+		{
+			private DbManager parent = null;
+		
+			#region Constructors
+
+			private <#= ent.Name #>Class(){}
+
+			internal <#= ent.Name #>Class(DbManager parent)
+			{
+				this.parent = parent;
+			}
+			
+			#endregion
+			
+<#+ foreach(Proc p in ent.Procedures) GenerateClassMethod(p, ent.OriginalName); #>
+		}
+		
+		#endregion
+<#+
+	}
+#>
+<#+ 
+	private void GenerateClassMethod(Proc proc, string entity)
+	{
+		#>
+			public DbManager <#= proc.Name #>(<#= GenerateMethodParameters(proc) #>)
+			{
+				return this.parent.SetSpCommand(<#= string.Format("\"{0}_{1}\"", entity, proc.OriginalName) #><#= GenerateCallParameters(proc) #>);
+			}
+
+<#+
+	}
+#>
+<#+
+	private string GenerateMethodParameters(Proc procedure)
+	{
+		StringBuilder sb = new StringBuilder();
+		foreach(Param p in procedure.Parameters)
+		{
+			if (sb.Length > 0)
+			{
+				sb.Append(", ");
+			}
+			sb.AppendFormat("{0} {1}", p.Type, p.Name);
+		}
+		return sb.ToString();
+	}
+	
+	private string GenerateCallParameters(Proc procedure)
+	{
+		StringBuilder sb = new StringBuilder();
+		foreach(Param p in procedure.Parameters)
+		{
+			sb.AppendFormat(", this.parent.Parameter(\"{0}\", {1})", p.OriginalName, p.Name);
+		}
+		return sb.ToString();
+	}
+#>
